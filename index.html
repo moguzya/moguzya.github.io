@@ -1151,7 +1151,7 @@
                 }
             },
             {
-                name: "Muleshoe Water System",
+                name: "Muleshoe Water System (Real Attack - Jan 2024)",
                 network: {
                     components: [
                         // Well Source
@@ -1176,7 +1176,7 @@
                         { id: 'pump_junction', type: 'junction', temperature: 18, ph: 7.1, o2: 8.5, bodn: 1.2, nitrate: 0.6, co2: 4.5, position: { x: 5, y: 10, z: 0 } },
                         
                         // Water Tower
-                        { id: 'water_tower', type: 'tank', shape: 'cylindrical', radius: 2.0, maxLevel: 150, waterLevel: 132.1, temperature: 18, ph: 7.1, o2: 8.5, bodn: 1.2, nitrate: 0.6, co2: 4.5, power: 0, position: { x: 15, y: 10, z: 0 } },
+                        { id: 'water_tower', type: 'tank', shape: 'cylindrical', radius: 2.0, maxLevel: 150, waterLevel: 50, temperature: 18, ph: 7.1, o2: 8.5, bodn: 1.2, nitrate: 0.6, co2: 4.5, power: 0, position: { x: 15, y: 10, z: 0 } },
                         
                         // Distribution Sink
                         { id: 'distribution_sink', type: 'sink', temperature: 18, ph: 7.1, o2: 8.5, bodn: 1.2, nitrate: 0.6, co2: 4.5, position: { x: 25, y: 10, z: 0 } }
@@ -1241,17 +1241,25 @@
                     }
                 ],
                 attackScenarios: [
-                    // Data poisoning attacks on critical sensors
-                    {time: 300, type: "data_poisoning", componentId: "water_tower", poisonType: "waterLevel", value: 110, duration: 200},
-                    {time: 500, type: "data_poisoning", componentId: "ground_tank_1", poisonType: "waterLevel", value: 5, duration: 150},
-                    // Physical damage attacks
-                    {time: 400, type: "physical_damage", componentId: "middle_booster", damageType: "pump_failure"},
-                    {time: 600, type: "physical_damage", componentId: "well_junction", damageType: "leak"},
-                    // Chemical interference
-                    {time: 200, type: "chemical_interference", componentId: "ground_tank_1", chemical: "O2", amount: -2.0}
+                    // Real Muleshoe Attack Scenario (January 18, 2024)
+                    // Russian hacktivists caused water tank overflow for 30-45 minutes through software manipulation
+                    
+                    // Primary Attack: Software hack causing water tank overflow
+                    // The attack manipulates the water level sensor to falsely report low levels,
+                    // causing pumps to continue filling the tank beyond capacity
+                    {time: 100, type: "data_poisoning", componentId: "water_tower", poisonType: "waterLevel", value: 30, duration: 2700}, // 45 minutes = 2700 seconds
+                    
+                    // Secondary Attack: Disable safety controls
+                    // Disable the pump control system that should stop pumps when tank is full
+                    {time: 100, type: "physical_damage", componentId: "middle_booster", damageType: "pump_failure"},
+                    
+                    // Tertiary Attack: Disable backup systems
+                    // Ensure backup pumps also fail to prevent system recovery
+                    {time: 150, type: "physical_damage", componentId: "north_booster", damageType: "pump_failure"},
+                    {time: 200, type: "physical_damage", componentId: "south_booster", damageType: "pump_failure"}
                 ],
                 simulationSettings: {
-                    duration: 900,
+                    duration: 4000,
                     ambientTemp: 20
                 }
             }
@@ -2654,43 +2662,8 @@
                     }
                 });
                 
-                // Apply conditional actions to set pump states for this step
-                conditionalActions.forEach(rule => {
-                    const sourceComp = simNetwork.components.find(c => c.id === rule.source.componentId);
-                    if(!sourceComp) return;
-
-                    // Use poisoned reading if available, otherwise use real value
-                    let currentValue = sourceComp[rule.source.value];
-                    if (sourceComp.poisonedReadings && sourceComp.poisonedReadings[rule.source.value] !== undefined) {
-                        const poisonData = sourceComp.poisonedReadings[rule.source.value];
-                        // Check if the poisoning is still active
-                        if (poisonData.endTime && t <= poisonData.endTime) {
-                            currentValue = poisonData.value;
-                        }
-                    }
-                    
-                    let conditionMet = false;
-                    switch(rule.condition.operator) {
-                        case '>': if (currentValue > rule.condition.threshold) conditionMet = true; break;
-                        case '<': if (currentValue < rule.condition.threshold) conditionMet = true; break;
-                        case '==': if (currentValue == rule.condition.threshold) conditionMet = true; break;
-                    }
-
-                    if (conditionMet) {
-                        const targetComp = simNetwork.components.find(c => c.id === rule.target.componentId);
-                        if (targetComp && !targetComp.stuck) {
-                            if(rule.target.actionType === 'set_pump_power') targetComp.power = parseFloat(rule.target.params.power);
-                            if(rule.target.actionType === 'emergency_stop') targetComp.power = 0;
-                            if(rule.target.actionType === 'emergency_close') targetComp.isOpen = false;
-                            if(rule.target.actionType === 'pressure_relief') targetComp.isOpen = true;
-                            if(rule.target.actionType === 'reduce_power') targetComp.power = Math.max(0, targetComp.power - parseFloat(rule.target.params.power || 50));
-                            if(rule.target.actionType === 'increase_power') targetComp.power = Math.min(100, targetComp.power + parseFloat(rule.target.params.power || 100));
-                        }
-                    }
-                });
-                
-                // Apply attacks
-                 attackScenarios.filter(a => a.time === t).forEach(attack => {
+                                // Apply attacks FIRST (so poisoned readings are available for conditional actions)
+                attackScenarios.filter(a => a.time === t).forEach(attack => {
                    const comp = simNetwork.components.find(c => c.id === attack.componentId);
                    if (!comp) return;
                    switch(attack.type) {
@@ -2737,8 +2710,45 @@
                                startTime: attack.time,
                                endTime: attack.time + attack.duration
                            };
+                           console.log(`Data poisoning applied to ${comp.id}.${attack.poisonType}: value=${attack.value}, duration=${attack.duration}s, endTime=${attack.time + attack.duration}`);
                            break;
                    }
+                });
+                
+                // Apply conditional actions AFTER attacks (so poisoned readings are available)
+                conditionalActions.forEach(rule => {
+                    const sourceComp = simNetwork.components.find(c => c.id === rule.source.componentId);
+                    if(!sourceComp) return;
+
+                    // Use poisoned reading if available, otherwise use real value
+                    let currentValue = sourceComp[rule.source.value];
+                    if (sourceComp.poisonedReadings && sourceComp.poisonedReadings[rule.source.value] !== undefined) {
+                        const poisonData = sourceComp.poisonedReadings[rule.source.value];
+                        // Check if the poisoning is still active
+                        if (poisonData.endTime && t <= poisonData.endTime) {
+                            currentValue = poisonData.value;
+                            console.log(`Using poisoned value for ${rule.source.componentId}.${rule.source.value}: ${currentValue} (real: ${sourceComp[rule.source.value]})`);
+                        }
+                    }
+                    
+                    let conditionMet = false;
+                    switch(rule.condition.operator) {
+                        case '>': if (currentValue > rule.condition.threshold) conditionMet = true; break;
+                        case '<': if (currentValue < rule.condition.threshold) conditionMet = true; break;
+                        case '==': if (currentValue == rule.condition.threshold) conditionMet = true; break;
+                    }
+
+                    if (conditionMet) {
+                        const targetComp = simNetwork.components.find(c => c.id === rule.target.componentId);
+                        if (targetComp && !targetComp.stuck) {
+                            if(rule.target.actionType === 'set_pump_power') targetComp.power = parseFloat(rule.target.params.power);
+                            if(rule.target.actionType === 'emergency_stop') targetComp.power = 0;
+                            if(rule.target.actionType === 'emergency_close') targetComp.isOpen = false;
+                            if(rule.target.actionType === 'pressure_relief') targetComp.isOpen = true;
+                            if(rule.target.actionType === 'reduce_power') targetComp.power = Math.max(0, targetComp.power - parseFloat(rule.target.params.power || 50));
+                            if(rule.target.actionType === 'increase_power') targetComp.power = Math.min(100, targetComp.power + parseFloat(rule.target.params.power || 100));
+                        }
+                    }
                 });
 
                 // Clear expired data poisoning attacks
@@ -2755,15 +2765,58 @@
 
                 // --- Physics & Chemistry Simulation Step ---
                 
-                // 1. Handle water transfer
+                // 1. Handle pump-driven water transfer
                 simNetwork.components.filter(c => c.type === 'pump').forEach(pump => {
                     if (pump.power > 0) {
                         const inPipe = simNetwork.pipes.find(p => p.to === pump.id);
                         const outPipe = simNetwork.pipes.find(p => p.from === pump.id);
 
                         if (inPipe && outPipe) {
-                            const sourceTank = simNetwork.components.find(c => c.id === inPipe.from);
-                            const destTank = simNetwork.components.find(c => c.id === outPipe.to);
+                            // Find the actual source tank (follow pipes backwards through junctions)
+                            let sourceTank = null;
+                            let currentComponent = simNetwork.components.find(c => c.id === inPipe.from);
+                            let visited = new Set();
+                            
+                            while (currentComponent && !visited.has(currentComponent.id)) {
+                                visited.add(currentComponent.id);
+                                if (currentComponent.type === 'tank') {
+                                    sourceTank = currentComponent;
+                                    break;
+                                } else if (currentComponent.type === 'junction') {
+                                    // Find the pipe going into this junction
+                                    const incomingPipe = simNetwork.pipes.find(p => p.to === currentComponent.id);
+                                    if (incomingPipe) {
+                                        currentComponent = simNetwork.components.find(c => c.id === incomingPipe.from);
+                                    } else {
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            // Find the actual destination tank (follow pipes forwards through junctions)
+                            let destTank = null;
+                            currentComponent = simNetwork.components.find(c => c.id === outPipe.to);
+                            visited.clear();
+                            
+                            while (currentComponent && !visited.has(currentComponent.id)) {
+                                visited.add(currentComponent.id);
+                                if (currentComponent.type === 'tank') {
+                                    destTank = currentComponent;
+                                    break;
+                                } else if (currentComponent.type === 'junction') {
+                                    // Find the pipe going out of this junction
+                                    const outgoingPipe = simNetwork.pipes.find(p => p.from === currentComponent.id);
+                                    if (outgoingPipe) {
+                                        currentComponent = simNetwork.components.find(c => c.id === outgoingPipe.to);
+                                    } else {
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
 
                             if (sourceTank && destTank) {
                                 const flowAmount = (pump.power / 100) * pump.maxFlowRate * timeStep;
@@ -2779,8 +2832,76 @@
 
                                     sourceTank.waterAmount -= flowAmount;
                                     destTank.waterAmount += flowAmount;
+                                    
+                                    console.log(`Pump transfer: ${sourceTank.id} -> ${destTank.id}, amount: ${flowAmount.toFixed(3)}, pump: ${pump.id}`);
                                 }
+                            } else {
+                                console.log(`Cannot find valid source/dest tanks for pump ${pump.id}. Source: ${sourceTank?.id || 'null'}, Dest: ${destTank?.id || 'null'}`);
                             }
+                        }
+                    }
+                });
+
+                // 2. Handle gravity-fed and natural flow (source-to-junction, junction-to-tank, tank-to-sink)
+                simNetwork.pipes.forEach(pipe => {
+                    const fromComp = simNetwork.components.find(c => c.id === pipe.from);
+                    const toComp = simNetwork.components.find(c => c.id === pipe.to);
+                    
+                    if (!fromComp || !toComp) return;
+                    
+                    // Handle source-to-junction flow (well to junction)
+                    if (fromComp.type === 'source' && toComp.type === 'junction') {
+                        // Source provides constant flow
+                        const flowAmount = 0.1 * timeStep; // Constant flow rate from source
+                        
+                        // Find the destination tank through the junction
+                        let destTank = null;
+                        let currentComponent = toComp;
+                        let visited = new Set();
+                        
+                        while (currentComponent && !visited.has(currentComponent.id)) {
+                            visited.add(currentComponent.id);
+                            if (currentComponent.type === 'tank') {
+                                destTank = currentComponent;
+                                break;
+                            } else if (currentComponent.type === 'junction') {
+                                // Find the pipe going out of this junction
+                                const outgoingPipe = simNetwork.pipes.find(p => p.from === currentComponent.id);
+                                if (outgoingPipe) {
+                                    currentComponent = simNetwork.components.find(c => c.id === outgoingPipe.to);
+                                } else {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                        
+                        if (destTank) {
+                            destTank.waterAmount += flowAmount;
+                            console.log(`Source flow: ${fromComp.id} -> ${destTank.id}, amount: ${flowAmount.toFixed(3)}`);
+                        }
+                    }
+                    
+                    // Handle tank-to-sink flow (tower to distribution)
+                    if (fromComp.type === 'tank' && toComp.type === 'sink') {
+                        // Sink consumes water from tank
+                        const flowAmount = 0.05 * timeStep; // Constant consumption rate
+                        
+                        if (fromComp.waterAmount >= flowAmount) {
+                            fromComp.waterAmount -= flowAmount;
+                            console.log(`Sink consumption: ${fromComp.id} -> ${toComp.id}, amount: ${flowAmount.toFixed(3)}`);
+                        }
+                    }
+                    
+                    // Handle tank-to-junction flow (tanks to storage junction)
+                    if (fromComp.type === 'tank' && toComp.type === 'junction') {
+                        // Gravity flow from tank to junction (for storage/distribution)
+                        const flowAmount = 0.02 * timeStep; // Slow gravity flow
+                        
+                        if (fromComp.waterAmount >= flowAmount) {
+                            fromComp.waterAmount -= flowAmount;
+                            console.log(`Gravity flow: ${fromComp.id} -> ${toComp.id}, amount: ${flowAmount.toFixed(3)}`);
                         }
                     }
                 });
