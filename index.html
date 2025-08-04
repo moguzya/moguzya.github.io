@@ -494,6 +494,7 @@
             flex-direction: column;
             height: 100%;
             gap: 1rem;
+            width: 100%;
         }
         
         .gallery-main-image {
@@ -505,13 +506,16 @@
             border-radius: 0.5rem;
             overflow: hidden;
             position: relative;
-            min-height: 300px;
+            min-height: 400px;
+            width: 100%;
         }
         
         .gallery-main-image img,
         .gallery-main-image video {
-            width: 100%;
-            height: 100%;
+            max-width: 100%;
+            max-height: 100%;
+            width: auto;
+            height: auto;
             object-fit: contain;
             cursor: zoom-in;
             transition: transform 0.2s ease-in-out;
@@ -1000,8 +1004,8 @@
                             <!-- Image Gallery -->
                             <div id="viewer-gallery" class="w-full h-full image-gallery">
                                 <div class="gallery-main-image">
-                                    <img id="gallery-main-img" src="" alt="Yacht Design" class="max-w-full max-h-full">
-                                    <div id="gallery-loading" class="hidden gallery-loading">
+                                    <img id="gallery-main-img" src="" alt="Yacht Design" class="max-w-full max-h-full hidden">
+                                    <div id="gallery-loading" class="gallery-loading">
                                         <svg class="animate-spin h-8 w-8 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -1566,13 +1570,22 @@ Mouse Controls (3D View):
         }
         
         function populateGallery(project) {
-            if (!project.images || project.images.length === 0) return;
+            console.log('Populating gallery for project:', project);
+            if (!project.images || project.images.length === 0) {
+                console.log('No images found for project');
+                return;
+            }
             
             const staticImages = project.images.filter(img => img.type === 'image');
-            if (staticImages.length === 0) return;
+            console.log('Static images found:', staticImages);
+            if (staticImages.length === 0) {
+                console.log('No static images found');
+                return;
+            }
             
             // Set the first image as main
             currentImageIndex = 0;
+            console.log('Loading main image:', staticImages[0]);
             loadGalleryMainImage(staticImages[0].url, staticImages[0].title);
             
             // Populate thumbnails
@@ -1635,18 +1648,23 @@ Mouse Controls (3D View):
         }
         
         function loadGalleryMainImage(url, title) {
+            console.log('Loading main image:', url, title);
+            console.log('Gallery elements:', { galleryLoading, galleryError, galleryMainImg });
+            
             galleryLoading.classList.remove('hidden');
             galleryError.classList.add('hidden');
             galleryMainImg.classList.add('hidden');
             
             const img = new Image();
             img.onload = () => {
+                console.log('Image loaded successfully:', url);
                 galleryMainImg.src = url;
                 galleryMainImg.alt = title;
                 galleryMainImg.classList.remove('hidden');
                 galleryLoading.classList.add('hidden');
             };
             img.onerror = () => {
+                console.error('Failed to load image:', url);
                 galleryLoading.classList.add('hidden');
                 galleryError.classList.remove('hidden');
             };
@@ -1882,7 +1900,7 @@ Mouse Controls (3D View):
 
             // 1. Scene
             threeScene = new THREE.Scene();
-            threeScene.background = new THREE.Color(0x1F2937);
+            threeScene.background = new THREE.Color(0x2D3748); // Lighter background
 
             // 2. Camera
             threeCamera = new THREE.PerspectiveCamera(75, viewer3D.clientWidth / viewer3D.clientHeight, 0.1, 1000);
@@ -1895,14 +1913,20 @@ Mouse Controls (3D View):
             // Enable shadows in the renderer
             threeRenderer.shadowMap.enabled = true;
             threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
+            // Improve color output
+            threeRenderer.outputEncoding = THREE.sRGBEncoding;
+            threeRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+            threeRenderer.toneMappingExposure = 1.2;
             viewer3D.appendChild(threeRenderer.domElement);
 
-            // 4. Lighting
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+            // 4. Enhanced Lighting Setup
+            // Bright ambient light for overall illumination
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
             threeScene.add(ambientLight);
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            
+            // Main directional light (sun)
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
             directionalLight.position.set(5, 10, 7.5);
-            // Enable shadow casting for this light
             directionalLight.castShadow = true;
             // Configure shadow properties for better quality
             directionalLight.shadow.mapSize.width = 2048;
@@ -1915,13 +1939,23 @@ Mouse Controls (3D View):
             directionalLight.shadow.camera.bottom = -10;
             threeScene.add(directionalLight);
             
-            // Add environment light for better PBR rendering
-            const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.4);
+            // Secondary fill light from opposite side
+            const fillLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            fillLight.position.set(-5, 5, -5);
+            threeScene.add(fillLight);
+            
+            // Hemisphere light for natural sky/ground lighting
+            const hemisphereLight = new THREE.HemisphereLight(0x87CEEB, 0x362D1D, 0.5);
             threeScene.add(hemisphereLight);
+            
+            // Add rim light for better edge definition
+            const rimLight = new THREE.DirectionalLight(0xffffff, 0.4);
+            rimLight.position.set(-10, 0, -10);
+            threeScene.add(rimLight);
             
             // Add a ground plane to receive shadows
             const groundGeometry = new THREE.PlaneGeometry(20, 20);
-            const groundMaterial = new THREE.ShadowMaterial({ opacity: 0.3 });
+            const groundMaterial = new THREE.ShadowMaterial({ opacity: 0.2 }); // Lighter shadow opacity
             const groundPlane = new THREE.Mesh(groundGeometry, groundMaterial);
             groundPlane.rotation.x = -Math.PI / 2;
             groundPlane.receiveShadow = true;
