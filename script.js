@@ -370,7 +370,7 @@ loginForm.addEventListener('submit', (e) => {
     const username = document.getElementById('username').value;
     const password = document.getElementById('password').value;
 
-    if (username === 'admin' && password === 'admin') {
+    if (username === 'admin' && password === '3YY7wB7RY6uxgNx!') {
         loginPage.classList.add('hidden');
         mainApp.classList.remove('hidden');
         populateProjectList();
